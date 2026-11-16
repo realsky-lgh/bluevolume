@@ -244,11 +244,20 @@ def start_rfcomm_server(audio_ctrl: AudioController, channel=1):
     """启动经典蓝牙 RFCOMM 服务端 (Linux / 支持蓝牙的原生系统)"""
     try:
         server_sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
-        server_sock.bind(("", channel))
+        # 使用 00:00:00:00:00:00 绑定任意本地蓝牙控制器
+        server_sock.bind(("00:00:00:00:00:00", channel))
         server_sock.listen(1)
         print(f"[Bluetooth] RFCOMM server listening on RFCOMM channel {channel}...")
+
+        # 尝试注册 SDP 记录
+        try:
+            subprocess.run(["sdptool", "add", "SP"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
+
         while True:
             client_sock, client_info = server_sock.accept()
+            print(f"[Bluetooth] Accepted RFCOMM client: {client_info}")
             handler = ConnectionHandler(client_sock, client_info, audio_ctrl)
             threading.Thread(target=handler.handle, daemon=True).start()
     except Exception as e:

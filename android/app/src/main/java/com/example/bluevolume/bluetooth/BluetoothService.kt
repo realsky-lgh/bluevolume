@@ -75,7 +75,7 @@ class BluetoothService(private val context: Context) {
     }
 
     /**
-     * 通过蓝牙 SPP 连接指定的电脑设备
+     * 通过蓝牙 SPP 连接指定的电脑设备 (支持多级降级防失败)
      */
     @SuppressLint("MissingPermission")
     fun connectBluetooth(device: BluetoothDevice) {
@@ -84,13 +84,15 @@ class BluetoothService(private val context: Context) {
         _errorMessage.value = null
 
         serviceScope.launch {
+            var socket: BluetoothSocket? = null
             try {
                 Log.d(TAG, "Connecting to Bluetooth device: ${device.name} [${device.address}]")
-                // 取消扫描以提升连接速度与稳定性
+                // 取消扫描以显著提升连接速度与稳定性
                 bluetoothAdapter?.cancelDiscovery()
 
-                val socket = device.createRfcommSocketToServiceRecord(SPP_UUID)
-                socket.connect()
+                // 尝试连接逻辑：先尝试标准 SPP，若报 read failed 则降级到反射 Channel 1
+                socket = createAndConnectSocket(device)
+
                 btSocket = socket
                 outputStream = socket.outputStream
                 reader = BufferedReader(InputStreamReader(socket.inputStream))
@@ -110,11 +112,58 @@ class BluetoothService(private val context: Context) {
                 startListenLoop()
             } catch (e: Exception) {
                 Log.e(TAG, "Bluetooth connection failed", e)
-                _errorMessage.value = "蓝牙连接失败: ${e.localizedMessage ?: "未知错误"}"
+                try {
+                    socket?.close()
+                } catch (_: Exception) {}
+                _errorMessage.value = "蓝牙连接失败: ${e.localizedMessage ?: "握手超时"}"
                 _connectionStatus.value = ConnectionStatus.ERROR
                 disconnect()
             }
         }
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun createAndConnectSocket(device: BluetoothDevice): BluetoothSocket {
+        // 方法 1：标准安全 SPP UUID
+        try {
+            Log.d(TAG, "[Strategy 1] Connecting with standard secure SPP UUID...")
+            val s = device.createRfcommSocketToServiceRecord(SPP_UUID)
+            s.connect()
+            Log.d(TAG, "[Strategy 1] Connected successfully!")
+            return s
+        } catch (e1: Exception) {
+            Log.w(TAG, "[Strategy 1] Failed (${e1.message}), trying Strategy 2 (Insecure)...")
+        }
+
+        // 方法 2：非安全 SPP UUID
+        try {
+            Log.d(TAG, "[Strategy 2] Connecting with insecure SPP UUID...")
+            val s = device.createInsecureRfcommSocketToServiceRecord(SPP_UUID)
+            s.connect()
+            Log.d(TAG, "[Strategy 2] Connected successfully!")
+            return s
+        } catch (e2: Exception) {
+            Log.w(TAG, "[Strategy 2] Failed (${e2.message}), trying Strategy 3 (Reflection Channel 1)...")
+        }
+
+        // 方法 3：通过反射直接连接底层的 RFCOMM Channel 1 (跳过 SDP 记录查询，终极保底)
+        try {
+            Log.d(TAG, "[Strategy 3] Connecting directly to RFCOMM channel 1 via reflection...")
+            val m = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
+            val s = m.invoke(device, 1) as BluetoothSocket
+            s.connect()
+            Log.d(TAG, "[Strategy 3] Connected successfully via RFCOMM channel 1!")
+            return s
+        } catch (e3: Exception) {
+            Log.w(TAG, "[Strategy 3] Failed (${e3.message}), trying Strategy 4 (Insecure Reflection)...")
+        }
+
+        // 方法 4：非安全反射 Channel 1
+        val mInsecure = device.javaClass.getMethod("createInsecureRfcommSocket", Int::class.javaPrimitiveType)
+        val sFinal = mInsecure.invoke(device, 1) as BluetoothSocket
+        sFinal.connect()
+        Log.d(TAG, "[Strategy 4] Connected successfully via insecure RFCOMM channel 1!")
+        return sFinal
     }
 
     /**
