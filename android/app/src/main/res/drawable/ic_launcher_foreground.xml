@@ -1,10 +1,93 @@
 <?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+
+    <!-- 1. 左侧扩散音波弧线 (外弧) -->
     <path
-        android:fillColor="#FFFFFF"
-        android:pathData="M54,24L66,36L58,44L58,64L66,72L54,84L52,84L52,58L42,68L38,64L50,52L38,40L42,36L52,46L52,24ZM56,33L56,46L61,41ZM56,58L56,71L61,66Z" />
+        android:strokeWidth="2.5"
+        android:strokeColor="#38BDF8"
+        android:strokeAlpha="0.35"
+        android:strokeLineCap="round"
+        android:pathData="M31,38 C23,47 23,61 31,70" />
+
+    <!-- 左侧扩散音波弧线 (内弧) -->
+    <path
+        android:strokeWidth="2.8"
+        android:strokeColor="#00F2FE"
+        android:strokeAlpha="0.65"
+        android:strokeLineCap="round"
+        android:pathData="M37,44 C32,49 32,59 37,64" />
+
+    <!-- 2. 右侧扩散音波弧线 (内弧) -->
+    <path
+        android:strokeWidth="2.8"
+        android:strokeColor="#00F2FE"
+        android:strokeAlpha="0.65"
+        android:strokeLineCap="round"
+        android:pathData="M71,44 C76,49 76,59 71,64" />
+
+    <!-- 右侧扩散音波弧线 (外弧) -->
+    <path
+        android:strokeWidth="2.5"
+        android:strokeColor="#38BDF8"
+        android:strokeAlpha="0.35"
+        android:strokeLineCap="round"
+        android:pathData="M77,38 C85,47 85,61 77,70" />
+
+    <!-- 3. 中心发光主圆盘外光环 -->
+    <path
+        android:fillColor="#0E7490"
+        android:fillAlpha="0.35"
+        android:pathData="M54,54m-22,0a22,22 0,1 1,44 0a22,22 0,1 1,-44 0" />
+
+    <!-- 中心主圆盘底板 -->
+    <path
+        android:fillColor="#0F172A"
+        android:strokeWidth="1.8"
+        android:strokeColor="#0284C7"
+        android:pathData="M54,54m-18,0a18,18 0,1 1,36 0a18,18 0,1 1,-36 0" />
+
+    <!-- 4. 核心立体发光蓝牙图腾 (发光层) -->
+    <path
+        android:strokeWidth="5.5"
+        android:strokeColor="#00F2FE"
+        android:strokeAlpha="0.4"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M52,38 L62,48 L56,54 L56,54 L62,60 L52,70 L52,38 Z M45,45 L59,59 M45,63 L59,49" />
+
+    <!-- 核心立体发光蓝牙图腾 (高亮亮芯) -->
+    <path
+        android:strokeWidth="2.8"
+        android:strokeColor="#FFFFFF"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M52,38 L62,48 L56,54 L56,54 L62,60 L52,70 L52,38 Z M45,45 L59,59 M45,63 L59,49" />
+
+    <!-- 5. 顶部微型音量状态刻度点 -->
+    <path
+        android:fillColor="#00F2FE"
+        android:fillAlpha="0.9"
+        android:pathData="M54,26m-1.5,0a1.5,1.5 0,1 1,3 0a1.5,1.5 0,1 1,-3 0" />
+    <path
+        android:fillColor="#38BDF8"
+        android:fillAlpha="0.6"
+        android:pathData="M46,28m-1.2,0a1.2,1.2 0,1 1,2.4 0a1.2,1.2 0,1 1,-2.4 0" />
+    <path
+        android:fillColor="#38BDF8"
+        android:fillAlpha="0.6"
+        android:pathData="M62,28m-1.2,0a1.2,1.2 0,1 1,2.4 0a1.2,1.2 0,1 1,-2.4 0" />
+
+    <!-- 底部电量/电源光弧 -->
+    <path
+        android:strokeWidth="1.5"
+        android:strokeColor="#38BDF8"
+        android:strokeAlpha="0.75"
+        android:strokeLineCap="round"
+        android:pathData="M46,80 C51,82 57,82 62,80" />
+
 </vector>
