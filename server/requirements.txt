@@ -1,0 +1,5 @@
+# Windows 用户建议安装 pycaw 用于精确控制 Windows 播放设备核心音频（可选）:
+# pycaw>=20240210
+# comtypes>=1.4.0
+
+# Linux 与 macOS 不需要安装任何第三方依赖，直接 python3 pc_server.py 即可运行。
