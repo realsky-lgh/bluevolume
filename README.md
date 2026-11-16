@@ -72,14 +72,26 @@ bluevolume/
 
 ## 快速使用指南
 
-### 第一步：启动电脑端伴侣服务端
-在电脑（Windows、macOS 或 Linux）上运行：
+### 第一步：启动电脑端伴侣服务端（可配置开机自启）
 
+#### 选项 A：开机自启动守护（推荐）
+- **Linux (Ubuntu / Debian 等)**：
+  ```bash
+  ./server/autostart_linux.sh install
+  ```
+  *(注：已为当前主机完成配置并启用了 `systemd --user` 与 linger 守护，开机无需手动干预自动常驻)*
+
+- **Windows**：
+  双击运行 `server\autostart_windows.bat`（将自动生成无黑框后台静默运行项至 Windows Startup 启动目录）。
+
+- **macOS**：
+  ```bash
+  ./server/autostart_macos.sh install
+  ```
+
+#### 选项 B：手动前台运行测试
 ```bash
-# 进入 server 目录
 cd server
-
-# 运行伴侣服务端 (无需复杂环境，Python 3.7+ 即可)
 python3 pc_server.py
 ```
 
