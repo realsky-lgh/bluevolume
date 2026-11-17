@@ -146,24 +146,36 @@ class BluetoothService(private val context: Context) {
             Log.w(TAG, "[Strategy 2] Failed (${e2.message}), trying Strategy 3 (Reflection Channel 1)...")
         }
 
-        // 方法 3：通过反射直接连接底层的 RFCOMM Channel 1 (跳过 SDP 记录查询，终极保底)
-        try {
-            Log.d(TAG, "[Strategy 3] Connecting directly to RFCOMM channel 1 via reflection...")
-            val m = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
-            val s = m.invoke(device, 1) as BluetoothSocket
-            s.connect()
-            Log.d(TAG, "[Strategy 3] Connected successfully via RFCOMM channel 1!")
-            return s
-        } catch (e3: Exception) {
-            Log.w(TAG, "[Strategy 3] Failed (${e3.message}), trying Strategy 4 (Insecure Reflection)...")
+        // 方法 3：通过反射依次尝试连接底层的 RFCOMM 通道 (Channel 1 - 8，覆盖 Windows 动态分配通道)
+        val channelsToTry = listOf(4, 1, 2, 3, 5, 6, 7, 8)
+        for (ch in channelsToTry) {
+            try {
+                Log.d(TAG, "[Strategy 3] Trying RFCOMM channel $ch via reflection...")
+                val m = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
+                val s = m.invoke(device, ch) as BluetoothSocket
+                s.connect()
+                Log.d(TAG, "[Strategy 3] Connected successfully via RFCOMM channel $ch!")
+                return s
+            } catch (e3: Exception) {
+                Log.w(TAG, "[Strategy 3] Channel $ch failed: ${e3.message}")
+            }
         }
 
-        // 方法 4：非安全反射 Channel 1
-        val mInsecure = device.javaClass.getMethod("createInsecureRfcommSocket", Int::class.javaPrimitiveType)
-        val sFinal = mInsecure.invoke(device, 1) as BluetoothSocket
-        sFinal.connect()
-        Log.d(TAG, "[Strategy 4] Connected successfully via insecure RFCOMM channel 1!")
-        return sFinal
+        // 方法 4：非安全反射依次尝试通道 (Channel 4, 1, 2, 3, 5)
+        for (ch in channelsToTry) {
+            try {
+                Log.d(TAG, "[Strategy 4] Trying insecure RFCOMM channel $ch via reflection...")
+                val mInsecure = device.javaClass.getMethod("createInsecureRfcommSocket", Int::class.javaPrimitiveType)
+                val sFinal = mInsecure.invoke(device, ch) as BluetoothSocket
+                sFinal.connect()
+                Log.d(TAG, "[Strategy 4] Connected successfully via insecure RFCOMM channel $ch!")
+                return sFinal
+            } catch (e4: Exception) {
+                Log.w(TAG, "[Strategy 4] Insecure channel $ch failed: ${e4.message}")
+            }
+        }
+
+        throw Exception("所有蓝牙连接策略（SPP UUID / RFCOMM 1-8）均失败，请检查配对与服务端状态")
     }
 
     /**

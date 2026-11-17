@@ -58,7 +58,9 @@ class AudioController:
 
     def _init_windows_audio(self):
         self.win_volume_endpoint = None
+        self._win_use_com = False
         if self.os_type == "windows":
+            # 1. 优先尝试 pycaw
             try:
                 from ctypes import cast, POINTER
                 from comtypes import CLSCTX_ALL
@@ -66,8 +68,64 @@ class AudioController:
                 devices = AudioUtilities.GetSpeakers()
                 interface = devices.Activate(IAudioEndpointVolume._iid_, CLSCTX_ALL, None)
                 self.win_volume_endpoint = cast(interface, POINTER(IAudioEndpointVolume))
+                return
+            except Exception:
+                pass
+
+            # 2. 如果没有 pycaw，通过 comtypes + WASAPI COM 接口直接原生调用（无需安装额外包）
+            try:
+                from ctypes import wintypes, POINTER, c_float, c_long, c_ulong
+                from comtypes import IUnknown, GUID, COMMETHOD
+
+                class IAudioEndpointVolume(IUnknown):
+                    _iid_ = GUID('{5CDF2C82-841E-4546-9722-0CF74078229A}')
+                    _methods_ = [
+                        COMMETHOD([], c_long, 'RegisterControlChangeNotify', (['in'], POINTER(IUnknown), 'pNotify')),
+                        COMMETHOD([], c_long, 'UnregisterControlChangeNotify', (['in'], POINTER(IUnknown), 'pNotify')),
+                        COMMETHOD([], c_long, 'GetChannelCount', (['out'], POINTER(c_ulong), 'pnChannelCount')),
+                        COMMETHOD([], c_long, 'SetMasterVolumeLevel', (['in'], c_float, 'fLevelDB'), (['in'], POINTER(GUID), 'pguidEventContext')),
+                        COMMETHOD([], c_long, 'SetMasterVolumeLevelScalar', (['in'], c_float, 'fLevel'), (['in'], POINTER(GUID), 'pguidEventContext')),
+                        COMMETHOD([], c_long, 'GetMasterVolumeLevel', (['out'], POINTER(c_float), 'pfLevelDB')),
+                        COMMETHOD([], c_long, 'GetMasterVolumeLevelScalar', (['out'], POINTER(c_float), 'pfLevel')),
+                        COMMETHOD([], c_long, 'SetMute', (['in'], wintypes.BOOL, 'bMute'), (['in'], POINTER(GUID), 'pguidEventContext')),
+                        COMMETHOD([], c_long, 'GetMute', (['out'], POINTER(wintypes.BOOL), 'pbMute')),
+                    ]
+
+                class IMMDevice(IUnknown):
+                    _iid_ = GUID('{D666063F-1587-4E43-81F1-B948E807363F}')
+                    _methods_ = [
+                        COMMETHOD([], c_long, 'Activate', (['in'], POINTER(GUID), 'iid'), (['in'], c_ulong, 'dwClsCtx'), (['in'], POINTER(c_long), 'pActivationParams'), (['out'], POINTER(POINTER(IUnknown)), 'ppInterface')),
+                    ]
+
+                class IMMDeviceEnumerator(IUnknown):
+                    _iid_ = GUID('{A95664D2-9614-4F35-A746-DE8DB63617E6}')
+                    _methods_ = [
+                        COMMETHOD([], c_long, 'EnumAudioEndpoints'),
+                        COMMETHOD([], c_long, 'GetDefaultAudioEndpoint', (['in'], c_long, 'dataFlow'), (['in'], c_long, 'role'), (['out'], POINTER(POINTER(IMMDevice)), 'ppDevice')),
+                    ]
+
+                self._IAudioEndpointVolume = IAudioEndpointVolume
+                self._IMMDeviceEnumerator = IMMDeviceEnumerator
+                self._CLSID_MMDeviceEnumerator = GUID('{BCDE0395-E52F-467C-8E3D-C4579291692E}')
+                self._IID_IAudioEndpointVolume = GUID('{5CDF2C82-841E-4546-9722-0CF74078229A}')
+                self._win_use_com = True
             except Exception as e:
-                print(f"[Audio] Windows pycaw init failed (will use fallback): {e}")
+                print(f"[Audio] Windows COM fallback init notice: {e}")
+
+    def _get_win_com_endpoint(self):
+        """为当前线程创建/获取 Windows 音量控制 COM 接口"""
+        if not getattr(self, "_win_use_com", False):
+            return None
+        import comtypes
+        from comtypes import CoInitialize, CoCreateInstance, CLSCTX_INPROC_SERVER
+        try:
+            CoInitialize()
+        except Exception:
+            pass
+        de = CoCreateInstance(self._CLSID_MMDeviceEnumerator, interface=self._IMMDeviceEnumerator, clsctx=CLSCTX_INPROC_SERVER)
+        dev = de.GetDefaultAudioEndpoint(0, 1)  # eRender=0, eMultimedia=1
+        endpoint = dev.Activate(self._IID_IAudioEndpointVolume, CLSCTX_INPROC_SERVER, None)
+        return endpoint.QueryInterface(self._IAudioEndpointVolume)
 
     def get_volume(self) -> int:
         """获取当前音量 (0 - 100)"""
@@ -76,10 +134,11 @@ class AudioController:
                 if self.win_volume_endpoint:
                     vol = self.win_volume_endpoint.GetMasterVolumeLevelScalar()
                     return int(round(vol * 100))
-                # 兜底方式：通过 powershell 读取
-                cmd = "powershell -Command \"[Math]::Round((Get-AudioDevice -PlaybackVolume).Percent)\""
-                out = subprocess.check_output(cmd, shell=True, text=True, timeout=2).strip()
-                return int(out) if out.isdigit() else 50
+                endpoint = self._get_win_com_endpoint()
+                if endpoint:
+                    vol = endpoint.GetMasterVolumeLevelScalar()
+                    return int(round(vol * 100))
+                return 50
             elif self.os_type == "macos":
                 out = subprocess.check_output(
                     ["osascript", "-e", "output volume of (get volume settings)"],
@@ -113,11 +172,11 @@ class AudioController:
             if self.os_type == "windows":
                 if self.win_volume_endpoint:
                     self.win_volume_endpoint.SetMasterVolumeLevelScalar(volume / 100.0, None)
-                else:
-                    # 使用 PowerShell 调节音量 (通过音频端点接口或 nircmd)
-                    ps_cmd = f"(new-object -com wscript.shell)" # 备用
-                    # 若安装了 nircmd 或 NirCmdC
-                    subprocess.run(f"powershell -Command \"[Audio]::SetMasterVolume({volume})\"", shell=True)
+                    return
+                endpoint = self._get_win_com_endpoint()
+                if endpoint:
+                    endpoint.SetMasterVolumeLevelScalar(volume / 100.0, None)
+                    return
             elif self.os_type == "macos":
                 subprocess.run(["osascript", "-e", f"set volume output volume {volume}"], timeout=2)
             elif self.os_type == "linux":
@@ -240,29 +299,48 @@ class ConnectionHandler:
         elif msg_type == "PING":
             self.send_json({"type": "PONG", "timestamp": time.time()})
 
-def start_rfcomm_server(audio_ctrl: AudioController, channel=1):
-    """启动经典蓝牙 RFCOMM 服务端 (Linux / 支持蓝牙的原生系统)"""
-    try:
-        server_sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
-        # 使用 00:00:00:00:00:00 绑定任意本地蓝牙控制器
-        server_sock.bind(("00:00:00:00:00:00", channel))
-        server_sock.listen(1)
-        print(f"[Bluetooth] RFCOMM server listening on RFCOMM channel {channel}...")
+def start_rfcomm_server(audio_ctrl: AudioController, preferred_channel=1):
+    """启动经典蓝牙 RFCOMM 服务端 (跨平台支持: Linux BlueZ / Windows 11 AF_BLUETOOTH)"""
+    server_sock = None
+    actual_channel = preferred_channel
+    # 优先尝试传入的通道，若被系统占用（如 Windows 常用通道 1-3 被内置协议保留），自动寻找可用通道 (1-30)
+    candidate_channels = [preferred_channel] + [c for c in range(1, 31) if c != preferred_channel]
 
-        # 尝试注册 SDP 记录
+    for ch in candidate_channels:
         try:
-            subprocess.run(["sdptool", "add", "SP"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            sock = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
+            sock.bind(("00:00:00:00:00:00", ch))
+            sock.listen(1)
+            server_sock = sock
+            actual_channel = ch
+            break
         except Exception:
-            pass
+            if sock:
+                try:
+                    sock.close()
+                except Exception:
+                    pass
 
+    if not server_sock:
+        print("[Bluetooth] RFCOMM initialization: No available RFCOMM channel could be bound.")
+        return
+
+    print(f"[Bluetooth] RFCOMM server listening on RFCOMM channel {actual_channel}...")
+
+    # 尝试注册 SDP 记录 (Linux)
+    try:
+        subprocess.run(["sdptool", "add", "SP"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except Exception:
+        pass
+
+    try:
         while True:
             client_sock, client_info = server_sock.accept()
             print(f"[Bluetooth] Accepted RFCOMM client: {client_info}")
             handler = ConnectionHandler(client_sock, client_info, audio_ctrl)
             threading.Thread(target=handler.handle, daemon=True).start()
     except Exception as e:
-        print(f"[Bluetooth] RFCOMM initialization notice: {e}")
-        print("[Bluetooth] RFCOMM requires local Bluetooth hardware and permissions.")
+        print(f"[Bluetooth] RFCOMM server error: {e}")
 
 def start_tcp_server(audio_ctrl: AudioController, port=8888):
     """启动备用/通用的 TCP Socket 服务 (方便测试与蓝牙局域网联动)"""
