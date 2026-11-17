@@ -146,7 +146,18 @@ class AudioController:
                 ).strip()
                 return int(out) if out.isdigit() else 50
             elif self.os_type == "linux":
-                # 尝试 pactl
+                # 1. 优先尝试 wpctl (现代 Linux / Ubuntu / PipeWire 官方工具)
+                try:
+                    out = subprocess.check_output(["wpctl", "get-volume", "@DEFAULT_AUDIO_SINK@"], text=True, timeout=2).strip()
+                    for token in out.split():
+                        try:
+                            val = float(token)
+                            return int(round(val * 100))
+                        except ValueError:
+                            continue
+                except Exception:
+                    pass
+                # 2. 尝试 pactl
                 try:
                     out = subprocess.check_output(["pactl", "get-sink-volume", "@DEFAULT_SINK@"], text=True, timeout=2)
                     for part in out.split("/"):
@@ -155,7 +166,7 @@ class AudioController:
                             return int(part[:-1])
                 except Exception:
                     pass
-                # 尝试 amixer
+                # 3. 尝试 amixer
                 out = subprocess.check_output(["amixer", "sget", "Master"], text=True, timeout=2)
                 import re
                 m = re.search(r"\[([0-9]+)%\]", out)
@@ -180,13 +191,21 @@ class AudioController:
             elif self.os_type == "macos":
                 subprocess.run(["osascript", "-e", f"set volume output volume {volume}"], timeout=2)
             elif self.os_type == "linux":
-                # 尝试 pactl
+                # 1. 优先尝试 wpctl (PipeWire / WirePlumber)
+                try:
+                    vol_float = volume / 100.0
+                    res = subprocess.run(["wpctl", "set-volume", "@DEFAULT_AUDIO_SINK@", f"{vol_float:.2f}"], timeout=2)
+                    if res.returncode == 0:
+                        return
+                except Exception:
+                    pass
+                # 2. 尝试 pactl
                 try:
                     subprocess.run(["pactl", "set-sink-volume", "@DEFAULT_SINK@", f"{volume}%"], timeout=2)
                     return
                 except Exception:
                     pass
-                # 尝试 amixer
+                # 3. 尝试 amixer
                 subprocess.run(["amixer", "-D", "pulse", "sset", "Master", f"{volume}%"], timeout=2)
         except Exception as e:
             print(f"[Audio] set_volume failed: {e}")

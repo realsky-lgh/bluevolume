@@ -26,6 +26,7 @@ install_service() {
 [Unit]
 Description=BlueVolume PC Companion Server
 After=network.target sound.target default.target
+Wants=sound.target
 
 [Service]
 Type=simple
@@ -34,10 +35,15 @@ ExecStart=$PYTHON_BIN $SERVER_PY
 Restart=always
 RestartSec=3
 Environment=PYTHONUNBUFFERED=1
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:$PATH
+Environment=XDG_RUNTIME_DIR=/run/user/%U
 
 [Install]
 WantedBy=default.target
 EOF
+
+    # 启用用户常驻守护 (即使未登录图形界面，开机即启动)
+    loginctl enable-linger "$(whoami)" 2>/dev/null || true
 
     echo "[1/4] 重新加载 systemd 用户配置..."
     systemctl --user daemon-reload
