@@ -146,31 +146,35 @@ class BluetoothService(private val context: Context) {
             Log.w(TAG, "[Strategy 2] Failed (${e2.message}), trying Strategy 3 (Reflection Channel 1)...")
         }
 
-        // 方法 3：通过反射依次尝试连接底层的 RFCOMM 通道 (Channel 1 - 8，覆盖 Windows 动态分配通道)
-        val channelsToTry = listOf(4, 1, 2, 3, 5, 6, 7, 8)
+        // 方法 3：通过反射依次尝试连接底层的 RFCOMM 通道 (优先 Channel 1，兼容 Windows 动态分配通道)
+        val channelsToTry = listOf(1, 4, 2, 3, 5, 6, 7, 8)
         for (ch in channelsToTry) {
+            var s: BluetoothSocket? = null
             try {
                 Log.d(TAG, "[Strategy 3] Trying RFCOMM channel $ch via reflection...")
                 val m = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
-                val s = m.invoke(device, ch) as BluetoothSocket
+                s = m.invoke(device, ch) as BluetoothSocket
                 s.connect()
                 Log.d(TAG, "[Strategy 3] Connected successfully via RFCOMM channel $ch!")
                 return s
             } catch (e3: Exception) {
+                try { s?.close() } catch (_: Exception) {}
                 Log.w(TAG, "[Strategy 3] Channel $ch failed: ${e3.message}")
             }
         }
 
-        // 方法 4：非安全反射依次尝试通道 (Channel 4, 1, 2, 3, 5)
+        // 方法 4：非安全反射依次尝试通道
         for (ch in channelsToTry) {
+            var sFinal: BluetoothSocket? = null
             try {
                 Log.d(TAG, "[Strategy 4] Trying insecure RFCOMM channel $ch via reflection...")
                 val mInsecure = device.javaClass.getMethod("createInsecureRfcommSocket", Int::class.javaPrimitiveType)
-                val sFinal = mInsecure.invoke(device, ch) as BluetoothSocket
+                sFinal = mInsecure.invoke(device, ch) as BluetoothSocket
                 sFinal.connect()
                 Log.d(TAG, "[Strategy 4] Connected successfully via insecure RFCOMM channel $ch!")
                 return sFinal
             } catch (e4: Exception) {
+                try { sFinal?.close() } catch (_: Exception) {}
                 Log.w(TAG, "[Strategy 4] Insecure channel $ch failed: ${e4.message}")
             }
         }
