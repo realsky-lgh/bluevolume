@@ -25,7 +25,9 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         val allGranted = permissions.entries.all { it.value }
-        if (!allGranted) {
+        if (allGranted) {
+            bluetoothService.tryAutoConnect()
+        } else {
             Toast.makeText(this, "需要蓝牙权限才能搜索和连接电脑", Toast.LENGTH_SHORT).show()
         }
     }
@@ -94,6 +96,12 @@ class MainActivity : ComponentActivity() {
         finishAffinity()
         android.os.Process.killProcess(android.os.Process.myPid())
         exitProcess(0)
+    }
+
+    
+    override fun onResume() {
+        super.onResume()
+        bluetoothService.tryAutoConnect()
     }
 
     override fun onDestroy() {

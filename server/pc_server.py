@@ -347,6 +347,12 @@ def register_bluez_spp(channel=1):
         print(f'[Bluetooth] BlueZ profile note: {e}')
 
 def start_rfcomm_server(audio_ctrl: AudioController, preferred_channel=1):
+    # 确保开机后本地蓝牙控制器处于上电开启状态
+    if platform.system() == "Linux":
+        try:
+            subprocess.run(["bluetoothctl", "power", "on"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except Exception:
+            pass
     """启动经典蓝牙 RFCOMM 服务端 (跨平台支持: Linux BlueZ / Windows 11 AF_BLUETOOTH)"""
     server_sock = None
     actual_channel = preferred_channel

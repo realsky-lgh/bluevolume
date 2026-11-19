@@ -38,6 +38,7 @@ class BluetoothService(private val context: Context) {
     private val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
 
     private val bluetoothAdapter: BluetoothAdapter? = BluetoothAdapter.getDefaultAdapter()
+    private val prefs = context.getSharedPreferences("bluevolume_prefs", Context.MODE_PRIVATE)
 
     private val _connectionStatus = MutableStateFlow(ConnectionStatus.DISCONNECTED)
     val connectionStatus: StateFlow<ConnectionStatus> = _connectionStatus.asStateFlow()
@@ -60,6 +61,26 @@ class BluetoothService(private val context: Context) {
 
     // 音量调节防抖/节流
     private var volumeJob: Job? = null
+
+    /**
+     * 满足“打开后通过蓝牙自动连接电脑”：自动连接上次成功连接的电脑
+     */
+    @SuppressLint("MissingPermission")
+    fun tryAutoConnect() {
+        if (_connectionStatus.value == ConnectionStatus.CONNECTED || 
+            _connectionStatus.value == ConnectionStatus.CONNECTING) return
+        val lastMac = prefs.getString("last_device_mac", null)
+        val paired = getPairedDevices()
+        val target = if (lastMac != null) {
+            paired.find { it.address.equals(lastMac, ignoreCase = true) }
+        } else {
+            paired.find { (it.name ?: "").contains("ubutu", ignoreCase = true) }
+        }
+        target?.let {
+            Log.d(TAG, "Auto connecting to: ${it.name} [${it.address}]")
+            connectBluetooth(it)
+        }
+    }
 
     /**
      * 获取系统已配对的蓝牙设备列表
@@ -98,6 +119,7 @@ class BluetoothService(private val context: Context) {
                 reader = BufferedReader(InputStreamReader(socket.inputStream))
 
                 _connectionStatus.value = ConnectionStatus.CONNECTED
+                prefs.edit().putString("last_device_mac", device.address).apply()
                 _computerInfo.value = ComputerInfo(
                     deviceName = device.name ?: device.address,
                     osType = "unknown",
