@@ -243,6 +243,15 @@ class ConnectionHandler:
         # 连接成功后先主动发送欢迎与初始系统信息
         self.send_system_info()
 
+        # 启动保底推送：连上后第 1 秒和第 2 秒各再推送一次，保证手机端 100% 收到系统信息
+        def burst_push():
+            for _ in range(2):
+                time.sleep(1.0)
+                if not self.running:
+                    break
+                self.send_system_info()
+        threading.Thread(target=burst_push, daemon=True).start()
+
         buffer = ""
         try:
             while self.running:

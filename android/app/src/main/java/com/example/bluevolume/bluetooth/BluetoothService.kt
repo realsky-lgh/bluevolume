@@ -61,6 +61,7 @@ class BluetoothService(private val context: Context) {
 
     // 音量调节防抖/节流
     private var volumeJob: Job? = null
+    private var handshakeJob: Job? = null
 
     /**
      * 满足“打开后通过蓝牙自动连接电脑”：自动连接上次成功连接的电脑
@@ -118,6 +119,9 @@ class BluetoothService(private val context: Context) {
                 outputStream = socket.outputStream
                 reader = BufferedReader(InputStreamReader(socket.inputStream))
 
+                // 先启动读取监听循环，确保不漏掉服务端的开门推送
+                startListenLoop()
+
                 _connectionStatus.value = ConnectionStatus.CONNECTED
                 prefs.edit().putString("last_device_mac", device.address).apply()
                 _computerInfo.value = ComputerInfo(
@@ -127,11 +131,8 @@ class BluetoothService(private val context: Context) {
                     hostname = device.name ?: "Unknown"
                 )
 
-                // 请求系统信息
-                sendRaw(Protocol.makeGetSystemInfo())
-
-                // 启动读取循环
-                startListenLoop()
+                // 启动握手查询协程（自动重试直至成功解析系统）
+                startHandshakePoll()
             } catch (e: Exception) {
                 Log.e(TAG, "Bluetooth connection failed", e)
                 try {
@@ -221,6 +222,8 @@ class BluetoothService(private val context: Context) {
                 outputStream = socket.getOutputStream()
                 reader = BufferedReader(InputStreamReader(socket.getInputStream()))
 
+                startListenLoop()
+
                 _connectionStatus.value = ConnectionStatus.CONNECTED
                 _computerInfo.value = ComputerInfo(
                     deviceName = "$host:$port",
@@ -229,11 +232,7 @@ class BluetoothService(private val context: Context) {
                     hostname = host
                 )
 
-                // 发送查询
-                sendRaw(Protocol.makeGetSystemInfo())
-
-                // 启动读取循环
-                startListenLoop()
+                startHandshakePoll()
             } catch (e: Exception) {
                 Log.e(TAG, "TCP connection failed", e)
                 _errorMessage.value = "网络连接失败: ${e.localizedMessage ?: "请检查IP与端口"}"
@@ -263,12 +262,28 @@ class BluetoothService(private val context: Context) {
         }
     }
 
-    private fun handleIncomingMessage(rawJson: String) {
+        private fun startHandshakePoll() {
+        handshakeJob?.cancel()
+        handshakeJob = serviceScope.launch {
+            for (attempt in 1..8) {
+                val currentOs = _computerInfo.value?.osType
+                if (!currentOs.isNullOrBlank() && currentOs != "unknown") {
+                    break
+                }
+                Log.d(TAG, "[Handshake] Querying system info attempt $attempt...")
+                sendRaw(Protocol.makeGetSystemInfo())
+                delay(1000)
+            }
+        }
+    }
+
+private fun handleIncomingMessage(rawJson: String) {
         val msg = Protocol.parse(rawJson) ?: return
         Log.d(TAG, "Received protocol message: $msg")
 
         when (msg.type.uppercase()) {
             "SYSTEM_INFO" -> {
+                handshakeJob?.cancel()
                 _computerInfo.value = _computerInfo.value?.copy(
                     osType = msg.os_type ?: "unknown",
                     osName = msg.os_name ?: "Unknown OS",
@@ -333,6 +348,7 @@ class BluetoothService(private val context: Context) {
      * 断开连接并释放资源
      */
     fun disconnect() {
+        handshakeJob?.cancel()
         try {
             outputStream?.close()
             reader?.close()

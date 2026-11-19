@@ -17,10 +17,22 @@ object Protocol {
     fun toJson(msg: ProtocolMessage): String = gson.toJson(msg) + "\n"
 
     fun parse(jsonStr: String): ProtocolMessage? {
+        val trimmed = jsonStr.trim()
         return try {
-            gson.fromJson(jsonStr, ProtocolMessage::class.java)
+            // 优先直接解析
+            gson.fromJson(trimmed, ProtocolMessage::class.java)
         } catch (e: Exception) {
-            null
+            // 容错处理：若存在多余字符或多行粘包，截取首个完整的 { ... }
+            try {
+                val start = trimmed.indexOf('{')
+                val end = trimmed.lastIndexOf('}')
+                if (start in 0 until end) {
+                    val sub = trimmed.substring(start, end + 1)
+                    gson.fromJson(sub, ProtocolMessage::class.java)
+                } else null
+            } catch (_: Exception) {
+                null
+            }
         }
     }
 
