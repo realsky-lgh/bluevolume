@@ -78,6 +78,8 @@ class MainActivity : ComponentActivity() {
 
         if (permissionsToRequest.isNotEmpty()) {
             permissionLauncher.launch(permissionsToRequest.toTypedArray())
+        } else {
+            bluetoothService.tryAutoConnect()
         }
     }
 

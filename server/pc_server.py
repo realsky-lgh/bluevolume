@@ -328,32 +328,8 @@ class ConnectionHandler:
             self.send_json({"type": "PONG", "timestamp": time.time()})
 
 def register_bluez_spp(channel=1):
-    """在 Linux 上通过 BlueZ D-Bus 官方接口注册 SPP (Serial Port Profile) SDP 记录"""
-    if platform.system() != "Linux":
-        return
-    try:
-        import dbus
-        import dbus.service
-        from dbus.mainloop.glib import DBusGMainLoop
-        DBusGMainLoop(set_as_default=True)
-        bus = dbus.SystemBus()
-        manager = dbus.Interface(bus.get_object('org.bluez', '/org/bluez'), 'org.bluez.ProfileManager1')
+    pass
 
-        class BlueZProfile(dbus.service.Object):
-            @dbus.service.method('org.bluez.Profile1', in_signature='', out_signature='')
-            def Release(self):
-                pass
-
-        profile = BlueZProfile(bus, '/bluevolume/spp')
-        opts = {
-            'Name': 'BlueVolume Serial Port',
-            'Channel': dbus.UInt16(channel),
-        }
-        manager.RegisterProfile('/bluevolume/spp', '00001101-0000-1000-8000-00805f9b34fb', opts)
-        print(f'[Bluetooth] BlueZ D-Bus: SPP profile registered for channel {channel}')
-    except Exception as e:
-        # 如果已经注册或不可用，捕获不阻断
-        print(f'[Bluetooth] BlueZ profile note: {e}')
 
 def start_rfcomm_server(audio_ctrl: AudioController, preferred_channel=1):
     # 确保开机后本地蓝牙控制器处于上电开启状态
@@ -388,7 +364,7 @@ def start_rfcomm_server(audio_ctrl: AudioController, preferred_channel=1):
         return
 
     print(f"[Bluetooth] RFCOMM server listening on RFCOMM channel {actual_channel}...")
-    register_bluez_spp(actual_channel)
+    # register_bluez_spp disabled to prevent BlueZ connection hijacking
 
     try:
         while True:

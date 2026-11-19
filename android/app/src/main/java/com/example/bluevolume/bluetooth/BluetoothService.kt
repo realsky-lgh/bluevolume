@@ -145,64 +145,60 @@ class BluetoothService(private val context: Context) {
         }
     }
 
-    @SuppressLint("MissingPermission")
+        @SuppressLint("MissingPermission")
     private fun createAndConnectSocket(device: BluetoothDevice): BluetoothSocket {
-        // 方法 1：标准安全 SPP UUID
+        // 方法 1（绝对优先）：直接直连标准 RFCOMM 通道 1 (跳过 SDP 查询，直达电脑原生 Socket 监听)
         try {
-            Log.d(TAG, "[Strategy 1] Connecting with standard secure SPP UUID...")
-            val s = device.createRfcommSocketToServiceRecord(SPP_UUID)
+            Log.d(TAG, "[Strategy 1] Connecting directly to RFCOMM channel 1...")
+            val m = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
+            val s = m.invoke(device, 1) as BluetoothSocket
             s.connect()
-            Log.d(TAG, "[Strategy 1] Connected successfully!")
+            Log.d(TAG, "[Strategy 1] Channel 1 connected successfully!")
             return s
         } catch (e1: Exception) {
-            Log.w(TAG, "[Strategy 1] Failed (${e1.message}), trying Strategy 2 (Insecure)...")
+            Log.w(TAG, "[Strategy 1] Channel 1 failed (${e1.message}), trying insecure channel 1...")
         }
 
-        // 方法 2：非安全 SPP UUID
+        // 方法 2：非安全直连 RFCOMM 通道 1
         try {
-            Log.d(TAG, "[Strategy 2] Connecting with insecure SPP UUID...")
-            val s = device.createInsecureRfcommSocketToServiceRecord(SPP_UUID)
+            Log.d(TAG, "[Strategy 2] Connecting to insecure RFCOMM channel 1...")
+            val mInsecure = device.javaClass.getMethod("createInsecureRfcommSocket", Int::class.javaPrimitiveType)
+            val s = mInsecure.invoke(device, 1) as BluetoothSocket
             s.connect()
-            Log.d(TAG, "[Strategy 2] Connected successfully!")
+            Log.d(TAG, "[Strategy 2] Insecure channel 1 connected successfully!")
             return s
         } catch (e2: Exception) {
-            Log.w(TAG, "[Strategy 2] Failed (${e2.message}), trying Strategy 3 (Reflection Channel 1)...")
+            Log.w(TAG, "[Strategy 2] Insecure channel 1 failed (${e2.message}), trying alternative channels...")
         }
 
-        // 方法 3：通过反射依次尝试连接底层的 RFCOMM 通道 (优先 Channel 1，兼容 Windows 动态分配通道)
-        val channelsToTry = listOf(1, 4, 2, 3, 5, 6, 7, 8)
+        // 方法 3：依次尝试备选动态通道 (Channel 4, 2, 3, 5, 6, 7, 8，兼容 Windows 动态端口)
+        val channelsToTry = listOf(4, 2, 3, 5, 6, 7, 8)
         for (ch in channelsToTry) {
             var s: BluetoothSocket? = null
             try {
-                Log.d(TAG, "[Strategy 3] Trying RFCOMM channel $ch via reflection...")
+                Log.d(TAG, "[Strategy 3] Trying channel $ch...")
                 val m = device.javaClass.getMethod("createRfcommSocket", Int::class.javaPrimitiveType)
                 s = m.invoke(device, ch) as BluetoothSocket
                 s.connect()
-                Log.d(TAG, "[Strategy 3] Connected successfully via RFCOMM channel $ch!")
+                Log.d(TAG, "[Strategy 3] Channel $ch connected successfully!")
                 return s
             } catch (e3: Exception) {
                 try { s?.close() } catch (_: Exception) {}
-                Log.w(TAG, "[Strategy 3] Channel $ch failed: ${e3.message}")
             }
         }
 
-        // 方法 4：非安全反射依次尝试通道
-        for (ch in channelsToTry) {
-            var sFinal: BluetoothSocket? = null
-            try {
-                Log.d(TAG, "[Strategy 4] Trying insecure RFCOMM channel $ch via reflection...")
-                val mInsecure = device.javaClass.getMethod("createInsecureRfcommSocket", Int::class.javaPrimitiveType)
-                sFinal = mInsecure.invoke(device, ch) as BluetoothSocket
-                sFinal.connect()
-                Log.d(TAG, "[Strategy 4] Connected successfully via insecure RFCOMM channel $ch!")
-                return sFinal
-            } catch (e4: Exception) {
-                try { sFinal?.close() } catch (_: Exception) {}
-                Log.w(TAG, "[Strategy 4] Insecure channel $ch failed: ${e4.message}")
-            }
+        // 方法 4：标准 SPP UUID 兜底
+        try {
+            Log.d(TAG, "[Strategy 4] Trying standard SPP UUID...")
+            val s = device.createRfcommSocketToServiceRecord(SPP_UUID)
+            s.connect()
+            Log.d(TAG, "[Strategy 4] SPP UUID connected successfully!")
+            return s
+        } catch (e4: Exception) {
+            Log.w(TAG, "[Strategy 4] SPP UUID failed: ${e4.message}")
         }
 
-        throw Exception("所有蓝牙连接策略（SPP UUID / RFCOMM 1-8）均失败，请检查配对与服务端状态")
+        throw Exception("所有蓝牙连接策略（RFCOMM 1-8 / SPP UUID）均失败，请检查配对状态")
     }
 
     /**
